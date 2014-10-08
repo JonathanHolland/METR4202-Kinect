@@ -19,8 +19,8 @@
 
 #define COLOR_WIDTH 640
 #define COLOR_HEIGHT 480
-#define DEPTH_WIDTH 320
-#define DEPTH_HEIGHT 240
+#define DEPTH_WIDTH 640
+#define DEPTH_HEIGHT 480
 
 int edgeThresh = 1;
 int lowThreshold = 25;
@@ -35,9 +35,11 @@ int threshold_type = 3;;
 int const max_value = 255;
 int const max_type = 4;
 int const max_BINARY_value = 255;
+cv::Mat out2 = cv::Mat(480, 640, CV_8UC4);
 cv::Mat depthImage;
 cv::Mat checkerImage = cv::Mat(480,640,CV_8U);
 USHORT* depthinMM;
+cv::Mat transformMat;
 cv::Mat src_gray2, dst2;
 double fx = 384.67525007;
 double fy = 312.96378221;
@@ -64,6 +66,7 @@ struct kinectClass
 	INuiSensor* sensor;            // The kinect sensor
 	IplImage* img;					// The image gathered from the kinect
 	cv::Mat* m;						// The stored mat image after conversion from kinect
+	cv::Mat* mcolor;
 	BYTE * depthData;
 	BYTE * colourData;
 	INuiCoordinateMapper* depthToRgbMap;
@@ -86,5 +89,9 @@ cv::Mat * GetDepthImage(kinectClass *kinect, BYTE* depthData, NUI_LOCKED_RECT* L
 void surfObjects(cv::Mat img_object, cv::Mat img_scene, std::vector<cv::KeyPoint>* keypoints_object, std::vector<cv::KeyPoint>* keypoints_scene, std::vector<cv::DMatch>* good_matches);
 void siftObjects(cv::Mat img_object, cv::Mat img_scene, std::vector<cv::KeyPoint>* keypoints_object, std::vector<cv::KeyPoint>* keypoints_scene, std::vector<cv::DMatch>* good_matches);
 std::vector<std::vector<int>> getCupEdges();
-cv::Point2f adjustCoords(int x, int y, int d);
+cv::Point3d adjustCoords(int x, int y, int d);
 void detectChessboard(cv::Mat * input, cv::Mat * output);
+double angleBetweenVectors(cv::Point3d p1, cv::Point3d p2);
+cv::Mat hornsAlgorithm(cv::vector<cv::Point3d> A, cv::vector<cv::Point3d> B);
+void calibrateCamera(kinectClass *kinect);
+void calibrateFromImages();

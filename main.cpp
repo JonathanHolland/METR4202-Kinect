@@ -1,33 +1,64 @@
 #include "main.h"
 #include <math.h>
 
+
+
+void CallBackFunc(int event, int x, int y, int flags, void* userdata)
+{
+	USHORT* depth = (USHORT*)userdata;
+	if (event == cv::EVENT_LBUTTONDOWN)
+	{
+		printf("Left button of the mouse is clicked - position %d, %d: ", x, y);
+		printf("Depth: %d\n", depthinMM[(y+1) * 640 - x]);
+
+		int z10 = (y+1) * 640 - x;
+		cv::Mat tempp = cv::Mat(adjustCoords(x, y, depthinMM[z10]));
+		//cv::convertPointsToHomogeneous(cv::Mat(adjustCoords(0, 0, 800)), tempp);
+		cv::Mat one = (cv::Mat_<double>(1, 1) << 1);
+		cv::Mat newvec = (cv::Mat_<double>(4, 1) << tempp.at<double>(0, 0), tempp.at<double>(1, 0), tempp.at<double>(2, 0), one.at<double>(0, 0));
+		cv::Mat output = transformMat*newvec;
+		printf("Output: %f,%f,%f\n", output.at<double>(0, 0), output.at<double>(1, 0), output.at<double>(2, 0));
+
+	}
+}
+
 int main()
 {
 	kinectClass kinect;
+	//calibrateCamera(&kinect);
+	calibrateFromImages();
+	cv::waitKey(0);
+
 	//connectKinect(&kinect, true);
 	// The kinect won't allow the grabbing of frames if both streams are open at once
-	connectKinect(&kinect, false);
-	getKinectData(&kinect, false);
-	cv::namedWindow("colourDepth", cv::WINDOW_AUTOSIZE);
-	
-	cv::imshow("colourDepth", *kinect.m);
-	cv::Mat depth = kinect.m->clone();
-
-	if (kinect.nextDepthFrameEvent != INVALID_HANDLE_VALUE)
-	{
-		CloseHandle(kinect.nextDepthFrameEvent);
-	}
 	connectKinect(&kinect, true);
-	cv::waitKey(1000);
 	getKinectData(&kinect, true);
-	cv::Mat colour = kinect.m->clone();
+	
+	cv::Mat colour = kinect.mcolor->clone();
+
+	if (kinect.nextColorFrameEvent != INVALID_HANDLE_VALUE)
+	{
+		CloseHandle(kinect.nextColorFrameEvent);
+	}
+	connectKinect(&kinect, false);
+	cv::waitKey(1000);
+	getKinectData(&kinect, false);
+	cv::Mat depth = kinect.m->clone();
+	cv::namedWindow("depth", cv::WINDOW_NORMAL);
+	cv::imshow("depth", depth);
+	cv::setMouseCallback("depth", CallBackFunc, (void*)depthinMM);
+	cv::namedWindow("colour", cv::WINDOW_NORMAL);
+	cv::imshow("colour", *kinect.mcolor);
+	cv::setMouseCallback("colour", CallBackFunc, (void*)depthinMM);
 	//detectChessboard(kinect.m, &colour);
+	//cv::Mat colour = cv::imread("samples/test/Test2.jpg",CV_LOAD_IMAGE_COLOR);
 	cv::Size patternsize(8, 5); //interior number of corners //source image
 	cv::vector<cv::Point2f> corners; //this will be filled by the detected corners
 
 	//CALIB_CB_FAST_CHECK saves a lot of time on images
 	//that do not contain any chessboard corners
 	cv::cvtColor(colour, checkerImage, cv::COLOR_RGBA2GRAY);
+	//checkerImage = cv::imread("samples/test/Test2.jpg", CV_LOAD_IMAGE_GRAYSCALE);
 	cv::Mat colour2 = colour.clone();
 	bool patternfound = findChessboardCorners(checkerImage, patternsize, corners,
 		cv::CALIB_CB_ADAPTIVE_THRESH + cv::CALIB_CB_NORMALIZE_IMAGE
@@ -36,13 +67,13 @@ int main()
 	if (patternfound)
 		cornerSubPix(checkerImage, corners, cv::Size(11, 11), cv::Size(-1, -1),
 		cv::TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 30, 0.1));
-	
-	cv::drawChessboardCorners(colour2, patternsize, cv::Mat(corners), patternfound);
-	
+
+	//cv::drawChessboardCorners(colour2, patternsize, cv::Mat(corners), patternfound);
+
 	cv::vector<cv::Point3f> boardPoints;
 	for (int i = 0; i < 5; i++) {
 		for (int j = 0; j < 8; j++) {
-			boardPoints.push_back(cv::Point3f(j , i , 0));
+			boardPoints.push_back(cv::Point3f(0, i, j));
 		}
 	}
 	cv::vector<double> rvec;
@@ -51,6 +82,7 @@ int main()
 	points0.push_back(cv::Point3d(5, 0, 0));
 	points0.push_back(cv::Point3d(0, 5, 0));
 	points0.push_back(cv::Point3d(0, 0, 5));
+	points0.push_back(cv::Point3d(5, 5, 5));
 
 	cv::vector<cv::Point2d> points2;
 	cv::Mat points3 = cv::Mat(3, 1, CV_32FC2);
@@ -58,21 +90,120 @@ int main()
 	for (int i = 0; i < 5; i++) {
 		empty.push_back(0);
 	}
-
-	cv::solvePnP(cv::Mat(boardPoints), corners, cameraMat, empty, rvec, tvec);
+	/*cv::solvePnP(boardPoints, corners, cameraMat, empty, rvec, tvec);
 	printf("rvec: %f,%f,%f", rvec[0], rvec[1], rvec[2]);
 	printf("tvec: %f,%f,%f", tvec[0], tvec[1], tvec[2]);
+	cv::Mat rmat;
+	cv::Mat rmat2;
+	cv::Mat tmat = (cv::Mat_<double>(3, 1) << tvec[0], tvec[1], tvec[2]);
+	cv::Rodrigues(rvec, rmat);
+	cv::Mat transformMat;
+	cv::hconcat(rmat, tmat, transformMat);
+	printf("transformMat: %f,%f,%f,%f", transformMat.at<double>(0, 0), transformMat.at<double>(0, 1), transformMat.at<double>(0, 2), transformMat.at<double>(0, 3));
 	cv::projectPoints(points0, rvec, tvec, cameraMat, empty, points2);
-	//cv::line(colour2, cv::Point2f(0,0), cv::Point2f(points3.at<cv::Vec2f>(0,0)), cv::Scalar(0, 255, 0), 4);
-	//cv::line(colour2, cv::Point2f(0, 0), cv::Point2f(points3.at<cv::Vec2f>(1,0)), cv::Scalar(255, 0, 0), 4);
-	//cv::line(colour2, cv::Point2f(0, 0), cv::Point2f(points3.at<cv::Vec2f>(2,0)), cv::Scalar(0, 0, 255), 4);
-	cv::line(colour2, corners[0], points2[0], cv::Scalar(0, 255, 0), 4);
-	cv::line(colour2, corners[0], points2[1], cv::Scalar(255, 0, 0), 4);
-	cv::line(colour2, corners[0], points2[2], cv::Scalar(0, 0, 255), 4);
 
+	cv::Mat test = cv::Mat(adjustCoords(200, 200, 500));
+	cv::Mat one = (cv::Mat_<double>(1, 1) << 1);
+	cv::Mat newone = (cv::Mat_<double>(4, 1) << test.at<double>(0, 0), test.at<double>(1, 0), test.at<double>(2, 0), one.at<double>(0, 0));
+	printf("Mat size: %d rows, %d columns \n", newone.rows,newone.cols);
+	cv::transpose(rmat, rmat2);
+	tmat = -1*rmat2*tmat;
+	cv::Mat invTrans;
+	cv::hconcat(rmat2, tmat,invTrans);
+	cv::Mat result = transformMat*newone;
+	printf("Output: %f,%f,%f \n", result.at<double>(0, 0), result.at<double>(1, 0), result.at<double>(2, 0));*/
 
-	cv::namedWindow("colour2", cv::WINDOW_AUTOSIZE);
-	cv::imshow("colour2", colour2);
+	cv::vector<cv::Point3d> points5;
+	int zdepth = ((int)corners[0].y + 1) * 640 - ((int)corners[0].x);
+	points5.push_back(adjustCoords(corners[0].x, corners[0].y, depthinMM[zdepth]));
+	printf("Corner location: %f, %f\n", corners[0].x, corners[0].y);
+	cv::circle(colour2, corners[0], 10, cv::Scalar(0, 255, 0));
+
+	printf("Zdepth: %d\n", depthinMM[zdepth]);
+	int zdepth2 = ((int)corners[7].y + 1) * 640 - ((int)corners[7].x);
+	points5.push_back(adjustCoords(corners[7].x, corners[7].y, depthinMM[zdepth2]));
+	printf("Corner location: %f, %f\n", corners[7].x, corners[7].y);
+	cv::circle(colour2, corners[7], 10, cv::Scalar(0, 255, 0));
+
+	printf("Zdepth: %d\n", depthinMM[zdepth2]);
+	int zdepth3 = ((int)corners[32].y+1) * 640 - ((int)corners[32].x);
+	points5.push_back(adjustCoords(corners[32].x, corners[32].y, depthinMM[zdepth3]));
+	printf("Corner location: %f, %f\n", corners[32].x, corners[32].y);
+	cv::circle(colour2, corners[32], 10, cv::Scalar(0, 255, 0));
+
+	printf("Zdepth: %d\n", depthinMM[zdepth3]);
+	int zdepth4 = ((int)corners[39].y+1) * 640 - ((int)corners[39].x);
+	points5.push_back(adjustCoords(corners[39].x, corners[39].y, depthinMM[zdepth4]));
+	printf("Corner location: %f, %f\n", corners[39].x, corners[39].y);
+	cv::circle(colour2, corners[39], 10, cv::Scalar(0, 255, 0));
+
+	printf("Zdepth: %d\n", depthinMM[zdepth4]);
+	cv::vector<cv::Point3d> points6;
+	points6.push_back(cv::Point3d(0, 55, 60));// 0 54 59
+	points6.push_back(cv::Point3d(0, 55, 241));// 0 54 241
+	points6.push_back(cv::Point3d(0, 158, 61));// 0 158 59
+	points6.push_back(cv::Point3d(0, 158, 242));// 0 158 241
+
+	transformMat = hornsAlgorithm(points5, points6);
+	printf("transformMat: %f, %f, %f, %f\n", transformMat.at<double>(0, 0), transformMat.at<double>(0, 1), transformMat.at<double>(0, 2), transformMat.at<double>(0, 3));
+	printf("transformMat: %f, %f, %f, %f\n", transformMat.at<double>(1, 0), transformMat.at<double>(1, 1), transformMat.at<double>(1, 2), transformMat.at<double>(1, 3));
+	printf("transformMat: %f, %f, %f, %f\n", transformMat.at<double>(2, 0), transformMat.at<double>(2, 1), transformMat.at<double>(2, 2), transformMat.at<double>(2, 3));
+
+	//
+	//
+	//
+	// Why 240 and 320 below?
+	//
+	//
+	//
+	int z10 = 240 * 640 + 320;
+	cv::Mat tempp = cv::Mat(adjustCoords(320, 240, depthinMM[z10]));
+	//cv::convertPointsToHomogeneous(cv::Mat(adjustCoords(0, 0, 800)), tempp);
+	cv::Mat one = (cv::Mat_<double>(1, 1) << 1);
+	cv::Mat newvec = (cv::Mat_<double>(4, 1) << tempp.at<double>(0, 0), tempp.at<double>(1, 0), tempp.at<double>(2, 0), one.at<double>(0, 0));
+	cv::Mat output = transformMat*newvec;
+	printf("Output: %f,%f,%f\n", output.at<double>(0, 0), output.at<double>(1, 0), output.at<double>(2, 0));
+
+	cv::namedWindow("Fuck", cv::WINDOW_AUTOSIZE);
+	cv::imshow("Fuck", colour2);
+	cv::vector<int> test;
+	int maxIndex = 0;
+	int maxDepth = 0;
+	for (int i = 0; i < 640*480; i++) {
+		test.push_back(depthinMM[i]);
+		if (depthinMM[i] < 50000) {
+			if (depthinMM[i] > maxDepth) {
+				maxIndex = i;
+				maxDepth = depthinMM[i];
+			}
+		}
+	}
+	//printf("Depth: %d", test[corners[0].y*640 + corners[0].x]);
+	//printf("Depth: %d", test[corners[7].y*640 + corners[7].x]);
+	//printf("Depth: %d", test[corners[32].y*640 + corners[32].x]);
+	//printf("Depth: %d", test[corners[39].y*640 + corners[39].x]);
+	printf("Depth: %d", test[corners[0].y + corners[0].x*480]);
+	printf("Depth: %d", test[corners[7].y + corners[7].x*480]);
+	printf("Depth: %d", test[corners[32].y + corners[32].x*480]);
+	printf("Depth: %d", test[corners[39].y + corners[39].x*480]);
+	
+	
+	for (int i = 0; i < test.size(); i++) {
+		test[i] = (65535 - ((test[i]-800) * 65536 / maxDepth));
+	}
+	printf("Maxdepth: %d", maxDepth);
+	cv::Mat testMat = cv::Mat(test).reshape(0,480);
+
+	
+	cv::circle(testMat, corners[0], 10, cv::Scalar(0, 255, 0));
+	cv::circle(testMat, corners[7], 10, cv::Scalar(0, 255, 0));
+	cv::circle(testMat, corners[32], 10, cv::Scalar(0, 255, 0));
+	cv::circle(testMat, corners[39], 10, cv::Scalar(0, 255, 0));
+
+	cv::namedWindow("test2", cv::WINDOW_NORMAL);
+	cv::imshow("test2", testMat);
+
+	cv::waitKey(0);
 	/*/// Reduce noise with a kernel 3x3
 	cv::vector < cv::vector < cv::Point>> contours;
 	cv::vector <cv::Vec4i> hierarchy;
@@ -466,7 +597,8 @@ cv::Mat * GetColorImage(kinectClass *kinect, BYTE* bytes, int width, int height)
 	const unsigned int img_size = width*height*4;
 	cv::Mat * out = new cv::Mat(height, width, CV_8UC4);
 	memcpy(out->data, bytes, img_size);
-	return out;
+	cv::flip(*out, out2, 1);
+	return &out2;
 }
 
 // get a CV_8U matrix from a Kinect depth frame 
@@ -506,8 +638,12 @@ cv::Mat * GetDepthImage(kinectClass *kinect, BYTE* depthData, NUI_LOCKED_RECT* L
 	IplImage* out = cvCreateImage(cvSize(640, 480), 8, 1);
 	int r = 480;
 	int c = 640;
-	long *colorCoords = new long[r*c*2];
+	long *colorCoords = new long[r*c * 2];
 
+	//for (int shift = 0; shift < r*c; shift++) {
+	//	USHORT data2 = data[shift] >> 3;
+	//	data[shift] = data2;
+	//}
 	// Store the index into the color array corresponding to this pixel
 	kinect->sensor->NuiImageGetColorPixelCoordinateFrameFromDepthPixelFrameAtResolution(
 		NUI_IMAGE_RESOLUTION_640x480,
@@ -516,30 +652,89 @@ cv::Mat * GetDepthImage(kinectClass *kinect, BYTE* depthData, NUI_LOCKED_RECT* L
 		data,
 		r*c*2,
 		colorCoords
-	);
+		);
+
+	///* The newest edition of looping through to properly utilise the above mapping*/
+	//IplImage* mappedData = cvCreateImage(cvSize(640, 480), 8, 1);
+
+	//// loop over each row and column of the color
+	//for (LONG y = 0; y < 480; ++y)
+	//{
+	//	LONG* pDest = (LONG*)mappedData + y*640;
+
+	//	for (LONG x = 0; x < 640; ++x)
+	//	{
+	//		int depthIndex = x + y * 640;
+
+	//		LONG colorInDepthX = colorCoords[depthIndex * 2];
+	//		LONG colorInDepthY = colorCoords[depthIndex * 2 + 1];
+
+	//		// make sure the depth pixel maps to valid point in color space
+	//		if (colorInDepthX >= 0 && colorInDepthX < 640 && colorInDepthY >= 0 && colorInDepthY < 480)
+	//		{
+	//			// calculate index into color array
+	//			LONG colorIndex = colorInDepthX + colorInDepthY * 640;
+
+	//			// set source for copy to the color pixel
+	//			LONG* pSrc = (LONG*)kinect->colourData + colorIndex;
+	//			*pDest = *pSrc;
+	//		}
+	//		else
+	//		{
+	//			*pDest = 0;
+	//		}
+
+	//		pDest++;
+	//	}
+	//}
+
+	// Then use mappedData as the depth
+	
+	/* END OF THE NEWER CODE */
+
+
+
+
+
 	depthinMM = new USHORT[LockedRect->size];
 	for (int i = 0; i < LockedRect->size; i += sizeof(USHORT)) {
 		unsigned char* pBuf = (unsigned char*)LockedRect->pBits + i;
 		unsigned short* pBufS = (unsigned short*)pBuf;
-		//unsigned short depth = ((*pBufS) & 0xfff8) >> 3;
-		unsigned short depth = NuiDepthPixelToDepth(*pBufS);
+		unsigned short depth = ((*pBufS &0xfff8)>> 3);
+		//unsigned short depth = NuiDepthPixelToDepth(*pBufS);
 		unsigned char intensity = depth > 0 ? 255 - (unsigned char)(256 * depth / 0x0fff) : 0;
-		
+		//unsigned char intensity = depth == 0 || depth > 2047 ? 0 : 255 - (BYTE)(((float)depth / 2047.0f) * 255.0f);
+
 		long
-			x = colorCoords[i], // tried with *(pMappedBits + (i * 2)),
-			y = colorCoords[i + 1]; // tried with *(pMappedBits + (i * 2) + 1);
-		depthinMM[x + y*out->widthStep] = depth;
+			x = colorCoords[i],
+			y = colorCoords[i + 1];
+
+		
 		if (x >= 0 && x < out->width && y >= 0 && y < out->height) {
 			out->imageData[x + y * out->widthStep] = intensity;
+			depthinMM[x + y*out->widthStep] = depth;
 		}
 
 	}
 
+	// Array for storing the aligned image
+	//cv::Mat alignedImage = cv::Mat::zeros(640, 480, CV_8U);
+	//cv::Mat* aligned = &alignedImage;
+	//cv::Mat* color = kinect->mcolor;
+	//int i = 0; //iterator for the mapped pixels array
+	//for (int y = 0; y < 480; y++) {
+	//	for (int x = 0; x < 640; x++) {
+	//	aligned[x + y * 640] = color[colorCoords[i] + colorCoords[i + 1] * 640];
+	//	i += 2;
+	//	}
+	//}
 
+	//cv::namedWindow("aligned", cv::WINDOW_NORMAL);
+	//cv::imshow("aligned", alignedImage);
 	// Then we can simply display Iout as a mat
 
 	
-	depthImage = cv::cvarrToMat(out, true);
+	depthImage = cv::cvarrToMat(out, false);
 	//cv::Mat * depthImagePtr = &depthImage;
 	//printf("%d", out[640 * 480 / 2]);
 	//cv::namedWindow("colourDepth", cv::WINDOW_AUTOSIZE);
@@ -661,7 +856,7 @@ void connectKinect(kinectClass * kinect, bool flag) {
 void getKinectData(kinectClass * kinect, bool isColour) {
 	INuiFrameTexture * pTexture;
 	const NUI_IMAGE_FRAME* imageFrame;
-	
+	NUI_IMAGE_FRAME imageFrame2;
 	if (isColour) {
 		// wait for event to be triggered by Kinect (wait forever)
 		WaitForSingleObject(kinect->nextColorFrameEvent, INFINITE);
@@ -682,19 +877,27 @@ void getKinectData(kinectClass * kinect, bool isColour) {
 			kinect->colourData = LockedRect.pBits;
 
 			// Colour specific format
-			kinect->m = GetColorImage(kinect,kinect->colourData, COLOR_WIDTH, COLOR_HEIGHT);
+			kinect->mcolor = GetColorImage(kinect,kinect->colourData, COLOR_WIDTH, COLOR_HEIGHT);
 		}
 		else
 		{
 			printf("Received colour textures pitch is zero \n");
 		}
+		// We're done with the texture so unlock it
+		pTexture->UnlockRect(0);
 
+		// Release the frame
+		NuiImageStreamReleaseFrame(kinect->colorStream, imageFrame);
 	}
 	else {
 		// wait for event to be triggered by Kinect (wait forever)
 		WaitForSingleObject(kinect->nextDepthFrameEvent, INFINITE);
 
+		
+		BOOL nearMode;
 		kinect->hr = NuiImageStreamGetNextFrame(kinect->depthStream, 0, &imageFrame);
+		//kinect->hr = kinect->sensor->NuiImageFrameGetDepthImagePixelFrameTexture(kinect->depthStream, &imageFrame2, &nearMode, &pTexture);
+
 		if (FAILED(kinect->hr))
 		{
 			printf("get frame failed \n");
@@ -709,19 +912,19 @@ void getKinectData(kinectClass * kinect, bool isColour) {
 		{
 			kinect->depthData = LockedRect.pBits;
 			// Depth specific format
-			
 			kinect->m = GetDepthImage(kinect,kinect->depthData,&LockedRect, DEPTH_WIDTH, DEPTH_HEIGHT);
 		}
 		else
 		{
 			printf("Buffer length of received texture is bogus \n");
 		}
-	}
-	// We're done with the texture so unlock it
-	pTexture->UnlockRect(0);
+		// We're done with the texture so unlock it
+		pTexture->UnlockRect(0);
 
-	// Release the frame
-	NuiImageStreamReleaseFrame(kinect->depthStream, imageFrame);
+		// Release the frame
+		NuiImageStreamReleaseFrame(kinect->depthStream, imageFrame);
+	}
+	
 }
 
 std::vector<std::vector<int>> getCupEdges() {
@@ -799,6 +1002,28 @@ std::vector<std::vector<int>> getCupEdges() {
 		cupOutput.push_back(bottomOfCup);
 		output.push_back(cupOutput);
 	}
+	//for (int i = 0; i < output.size(); i++) {
+	//	cv::Rect r = cv::Rect(output[i][0], output[i][1], output[i][2] - output[i][0], output[i][3] - output[i][1]);
+	//	printf("Rect: %d,%d,%d,%d\n", r.x, r.y, r.width, r.height);
+	//	cv::vector<int> numInRec;
+	//	for (int j = 0; j < cupEllipses.size(); j++) {
+	//		if (r.contains(cupEllipses[j].center)) {
+	//			numInRec.push_back(j);
+	//		}
+	//		if (numInRec.size() == 2) {
+	//			if (numInRec[0] = i) {
+	//				output[i][3] = cupEllipses[numInRec[1]].boundingRect().y;// +cupEllipses[numInRec[1]].boundingRect().height;
+	//				output[numInRec[1]] = cv::vector<int>(4);
+	//			}
+	//			else {
+	//				output[i][3] = cupEllipses[numInRec[0]].boundingRect().y;// +cupEllipses[numInRec[0]].boundingRect().height;
+	//				output[numInRec[0]] = cv::vector<int>(4);
+	//			}
+	//			
+	//			
+	//		}
+	//	}
+	//}
 
 	for (int i = 0; i < cupSizes.size(); i++) {
 		printf("Cupsize: %d \n", cupSizes[i]);
@@ -807,7 +1032,7 @@ std::vector<std::vector<int>> getCupEdges() {
 	return output;
 }
 
-cv::Point2f adjustCoords(int x, int y, int d) {
+cv::Point3d adjustCoords(int x, int y, int d) {
 	double fx = 384.67525007;
 	double fy = 312.96378221;
 	double cx = 388.3476765;
@@ -816,7 +1041,7 @@ cv::Point2f adjustCoords(int x, int y, int d) {
 	double newx = (x - cx) * d / fx;
 	double newy = (y - cy) * d / fy;
 
-	return cv::Point2f(newx, newy);
+	return cv::Point3d(newx, newy, d);
 }
 
 void detectChessboard(cv::Mat * input, cv::Mat * output) {
@@ -834,4 +1059,142 @@ void detectChessboard(cv::Mat * input, cv::Mat * output) {
 		cv::TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 30, 0.1));
 
 	cv::drawChessboardCorners(checkerImage, patternsize, cv::Mat(corners), patternfound);
+}
+
+double angleBetweenVectors(cv::Point3d p1, cv::Point3d p2) {
+	double dot = p1.ddot(p2);
+	return acos(dot / (sqrt(p1.ddot(p1))*sqrt(p2.ddot(p2))));
+}
+
+cv::Mat hornsAlgorithm(cv::vector<cv::Point3d> A, cv::vector<cv::Point3d> B) {
+	int numPoints = A.size();
+	//double Asum = 0;
+	//double Bsum = 0;
+	cv::Point3d Asum = cv::Point3d(0,0,0);
+	cv::Point3d Bsum = cv::Point3d(0,0,0);
+	for (int i = 0; i < A.size(); i++) {
+		Asum = Asum + A[i];
+		Bsum = Bsum + B[i];
+	}
+	
+	cv::Point3d Ca = cv::Point3d((Asum.x / numPoints), (Asum.y / numPoints), (Asum.z / numPoints));
+	cv::Point3d Cb = cv::Point3d((Bsum.x /numPoints), (Bsum.y / numPoints), (Bsum.z / numPoints));
+	cv::vector<cv::Point3d> An;
+	cv::vector<cv::Point3d> Bn;
+	for (int i = 0; i < A.size(); i++) {
+		An.push_back(A[i] - Ca);
+		Bn.push_back(B[i] - Cb);
+	}
+	cv::Mat M = (cv::Mat_<double>(4,4) << 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);
+	for (int i = 0; i < numPoints; i++) {
+		double a1 = 0;
+		double a2 = An[i].x;
+		double a3 = An[i].y;
+		double a4 = An[i].z;
+		double b1 = 0;
+		double b2 = Bn[i].x;
+		double b3 = Bn[i].y;
+		double b4 = Bn[i].z;
+		cv::Mat Ma = (cv::Mat_<double>(4, 4) << a1, -a2, -a3, -a4, a2, a1, a4, -a3, a3, -a4, a1, a2, a4, a3, -a2, a1);
+		cv::Mat Mb = (cv::Mat_<double>(4, 4) << b1, -b2, -b3, -b4, b2, b1, -b4, b3, b3, b4, b1, -b2, b4, -b3, b2, b1);
+		cv::Mat Matr = Ma.t();
+		M = M + Matr*Mb;
+		//printf("M: %f, %f, %f, %f\n", M.at<double>(0, 0), M.at<double>(0, 1), M.at<double>(0, 2), M.at<double>(0, 3));
+		//printf("M: %f, %f, %f, %f\n", M.at<double>(1, 0), M.at<double>(1, 1), M.at<double>(1, 2), M.at<double>(1, 3));
+		//printf("M: %f, %f, %f, %f\n", M.at<double>(2, 0), M.at<double>(2, 1), M.at<double>(2, 2), M.at<double>(2, 3));
+		//printf("M: %f, %f, %f, %f\n", M.at<double>(3, 0), M.at<double>(3, 1), M.at<double>(3, 2), M.at<double>(3, 3));
+	}
+	cv::Mat eigenVals;
+	
+	cv::Mat eigenVects;
+	cv::eigen(M, true, eigenVals,eigenVects);
+	//printf("Eigenvals: %f, %f, %f, %f\n", eigenVals.at<double>(0, 0), eigenVals.at<double>(1, 0), eigenVals.at<double>(2, 0), eigenVals.at<double>(3, 0));
+	double e1 = eigenVects.at<double>(0, 0);
+	double e2 = eigenVects.at<double>(0, 1);
+	double e3 = eigenVects.at<double>(0, 2);
+	double e4 = eigenVects.at<double>(0, 3);
+	cv::Mat M1 = (cv::Mat_<double>(4, 4) << e1, -e2, -e3, -e4, e2, e1, e4, -e3, e3, -e4, e1, e2, e4, e3, -e2, e1);
+	cv::Mat M2 = (cv::Mat_<double>(4, 4) << e1, -e2, -e3, -e4, e2, e1, -e4, e3, e3, e4, e1, -e2, e4, -e3, e2, e1);
+	cv::Mat R = M1.t()*M2;
+	//printf("R: %f, %f, %f, %f\n", R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), R.at<double>(0, 3));
+	//printf("R: %f, %f, %f, %f\n", R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), R.at<double>(1, 3));
+	//printf("R: %f, %f, %f, %f\n", R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), R.at<double>(2, 3));
+	//printf("R: %f, %f, %f, %f\n", R.at<double>(3, 0), R.at<double>(3, 1), R.at<double>(3, 2), R.at<double>(3, 3));
+	cv::Mat R1 = R.colRange(1, 4).rowRange(1, 4).clone();
+
+	int s = 1;
+
+	cv::Mat T = cv::Mat(Cb) - s*R1*cv::Mat(Ca);
+
+	cv::Mat result;
+	cv::hconcat(R1, T, result);
+	return result;
+}
+
+void calibrateCamera(kinectClass *kinect) {
+	int l = 0;
+	connectKinect(kinect, true);
+	cv::vector<cv::vector<cv::Point2d>> vectorOfVectors;
+	cv::vector<cv::vector<cv::Point2d>> boardPoints;
+	cv::vector<cv::Point2d> checkerBoard;
+	for (int i = 0; i < 5; i++){
+		for (int j = 0; j < 8; j++) {
+			checkerBoard.push_back(cv::Point2d(i * 26, j * 26));
+		}
+	}
+	while (l < 15) {
+		getKinectData(kinect, true);
+		std::ostringstream string;
+		string << "Calib" << l<<".jpg";
+		cv::imwrite(string.str(),*kinect->mcolor);
+		cv::namedWindow("Calibration", CV_WINDOW_AUTOSIZE);
+		cv::imshow("Calibration", *kinect->mcolor);
+		cv::vector<cv::Point2d> corners;
+		cv::findChessboardCorners(*kinect->mcolor,cv::Size(8,5),corners);
+		vectorOfVectors.push_back(corners);
+		boardPoints.push_back(checkerBoard);
+		l++;
+		cv::waitKey(500);
+	}
+	cv::Mat cameraOutputMatrix;
+	cv::Mat distCoef;
+	cv::vector<cv::vector<double>> rvecs;
+	cv::vector<cv::vector<double>> tvecs;
+	cv::calibrateCamera(boardPoints, vectorOfVectors, cv::Size(640, 480), cameraOutputMatrix, distCoef, rvecs, tvecs);
+	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(0, 0), cameraOutputMatrix.at<double>(0, 1), cameraOutputMatrix.at<double>(0, 2));
+	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(1, 0), cameraOutputMatrix.at<double>(1, 1), cameraOutputMatrix.at<double>(1, 2));
+	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(2, 0), cameraOutputMatrix.at<double>(2, 1), cameraOutputMatrix.at<double>(2, 2));
+}
+
+void calibrateFromImages() {
+	int l = 0;
+	cv::vector<cv::vector<cv::Point2d>> vectorOfVectors;
+	cv::vector<cv::vector<cv::Point2d>> boardPoints;
+	cv::vector<cv::Point2d> checkerBoard;
+	for (int i = 0; i < 5; i++){
+		for (int j = 0; j < 8; j++) {
+			checkerBoard.push_back(cv::Point2d(i * 26, j * 26));
+		}
+	}
+	while (l < 15) {
+		std::ostringstream string;
+		string << "Calib" << l << ".jpg";
+		cv::Mat img = cv::imread(string.str());
+		cv::vector<cv::Point2d> corners;
+		bool flag = cv::findChessboardCorners(img, cv::Size(8, 5), corners);
+		if (flag) {
+			vectorOfVectors.push_back(corners);
+			boardPoints.push_back(checkerBoard);
+		}
+		
+		l++;
+	}
+	cv::Mat cameraOutputMatrix; //= cv::Mat::eye(3,3,CV_64F);
+	cv::Mat distCoef; //= cv::Mat::zeros(8, 1, CV_64F);
+	cv::vector<cv::Mat> rvecs;
+	cv::vector<cv::Mat> tvecs;
+	cv::calibrateCamera(boardPoints, vectorOfVectors, cv::Size(640, 480), cameraOutputMatrix, distCoef, rvecs, tvecs);
+	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(0, 0), cameraOutputMatrix.at<double>(0, 1), cameraOutputMatrix.at<double>(0, 2));
+	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(1, 0), cameraOutputMatrix.at<double>(1, 1), cameraOutputMatrix.at<double>(1, 2));
+	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(2, 0), cameraOutputMatrix.at<double>(2, 1), cameraOutputMatrix.at<double>(2, 2));
 }
