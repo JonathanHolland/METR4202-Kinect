@@ -1,9 +1,13 @@
 #include "main.h"
-#include <math.h>
 
 
 
-void CallBackFunc(int event, int x, int y, int flags, void* userdata)
+/*
+* The trigger function is bound to OpenCV display windows to display
+* specified data on mouse click. depthinMM is passed in via void* userdata 
+* but is referenced as a global variable for ease of understanding.
+*/
+void trigger(int event, int x, int y, int flags, void* userdata)
 {
 	USHORT* depth = (USHORT*)userdata;
 	if (event == cv::EVENT_LBUTTONDOWN)
@@ -22,41 +26,60 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata)
 	}
 }
 
+/*
+* The main function 
+* - Establishes and passes through the kinectClass object
+* - Runs connectKinect and getKinectData for both colour and depth
+* - Does the bulk of the calculations on this data
+*/
 int main()
 {
 	kinectClass kinect;
+	// To calibrate directly from the kinect input
 	//calibrateCamera(&kinect);
+	// To calibrate from saved images
 	calibrateFromImages();
-	cv::waitKey(0);
 
-	//connectKinect(&kinect, true);
+	// Wait 2000ms to allow autofocus to take effect
+	// This allows *Some* standardisation of lighting
+	cv::waitKey(2000);
+
 	// The kinect won't allow the grabbing of frames if both streams are open at once
+	// Open colour stream
 	connectKinect(&kinect, true);
+	// Grab colour mat and pass to kinect.mcolor
 	getKinectData(&kinect, true);
-	
+	// Clone colour mat
 	cv::Mat colour = kinect.mcolor->clone();
-
+	// Close colour stream handle
 	if (kinect.nextColorFrameEvent != INVALID_HANDLE_VALUE)
 	{
 		CloseHandle(kinect.nextColorFrameEvent);
 	}
+
+	// Open depth stream
 	connectKinect(&kinect, false);
-	cv::waitKey(1000);
+	// Grab depth mat and pass to kinect.m
 	getKinectData(&kinect, false);
+	// Clone depth mat
 	cv::Mat depth = kinect.m->clone();
+
+	// Open and view Colour and Depth and assign MouseCallBacks
+	// WINDOW_NORMAL is preferable over WINDOW_AUTOSIZE because it will scale
+	// to a specified new window size when required
 	cv::namedWindow("depth", cv::WINDOW_NORMAL);
 	cv::imshow("depth", depth);
-	cv::setMouseCallback("depth", CallBackFunc, (void*)depthinMM);
+	cv::setMouseCallback("depth", trigger, (void*)depthinMM);
 	cv::namedWindow("colour", cv::WINDOW_NORMAL);
 	cv::imshow("colour", *kinect.mcolor);
-	cv::setMouseCallback("colour", CallBackFunc, (void*)depthinMM);
+	cv::setMouseCallback("colour", trigger, (void*)depthinMM);
+	
+	// Instantiate variables for using a 8x5 (internal corners) chessboard
+	// to se the co-ordinate frame. The same chessboard is used for calibration.
+
 	//detectChessboard(kinect.m, &colour);
-	//cv::Mat colour = cv::imread("samples/test/Test2.jpg",CV_LOAD_IMAGE_COLOR);
 	cv::Size patternsize(8, 5); //interior number of corners //source image
 	cv::vector<cv::Point2f> corners; //this will be filled by the detected corners
-
-	//CALIB_CB_FAST_CHECK saves a lot of time on images
-	//that do not contain any chessboard corners
 	cv::cvtColor(colour, checkerImage, cv::COLOR_RGBA2GRAY);
 	//checkerImage = cv::imread("samples/test/Test2.jpg", CV_LOAD_IMAGE_GRAYSCALE);
 	cv::Mat colour2 = colour.clone();
@@ -90,29 +113,8 @@ int main()
 	for (int i = 0; i < 5; i++) {
 		empty.push_back(0);
 	}
-	/*cv::solvePnP(boardPoints, corners, cameraMat, empty, rvec, tvec);
-	printf("rvec: %f,%f,%f", rvec[0], rvec[1], rvec[2]);
-	printf("tvec: %f,%f,%f", tvec[0], tvec[1], tvec[2]);
-	cv::Mat rmat;
-	cv::Mat rmat2;
-	cv::Mat tmat = (cv::Mat_<double>(3, 1) << tvec[0], tvec[1], tvec[2]);
-	cv::Rodrigues(rvec, rmat);
-	cv::Mat transformMat;
-	cv::hconcat(rmat, tmat, transformMat);
-	printf("transformMat: %f,%f,%f,%f", transformMat.at<double>(0, 0), transformMat.at<double>(0, 1), transformMat.at<double>(0, 2), transformMat.at<double>(0, 3));
-	cv::projectPoints(points0, rvec, tvec, cameraMat, empty, points2);
-
-	cv::Mat test = cv::Mat(adjustCoords(200, 200, 500));
-	cv::Mat one = (cv::Mat_<double>(1, 1) << 1);
-	cv::Mat newone = (cv::Mat_<double>(4, 1) << test.at<double>(0, 0), test.at<double>(1, 0), test.at<double>(2, 0), one.at<double>(0, 0));
-	printf("Mat size: %d rows, %d columns \n", newone.rows,newone.cols);
-	cv::transpose(rmat, rmat2);
-	tmat = -1*rmat2*tmat;
-	cv::Mat invTrans;
-	cv::hconcat(rmat2, tmat,invTrans);
-	cv::Mat result = transformMat*newone;
-	printf("Output: %f,%f,%f \n", result.at<double>(0, 0), result.at<double>(1, 0), result.at<double>(2, 0));*/
-
+	
+	// Display values and circle on image the four detected chessboard corners
 	cv::vector<cv::Point3d> points5;
 	int zdepth = ((int)corners[0].y + 1) * 640 - ((int)corners[0].x);
 	points5.push_back(adjustCoords(corners[0].x, corners[0].y, depthinMM[zdepth]));
@@ -144,113 +146,25 @@ int main()
 	points6.push_back(cv::Point3d(0, 158, 61));// 0 158 59
 	points6.push_back(cv::Point3d(0, 158, 242));// 0 158 241
 
+	// Use Horns Algorithm to use these points to transform the camera coordinate frame
+	// to the world coordinate frame (at the corner of the chessboard)
 	transformMat = hornsAlgorithm(points5, points6);
 	printf("transformMat: %f, %f, %f, %f\n", transformMat.at<double>(0, 0), transformMat.at<double>(0, 1), transformMat.at<double>(0, 2), transformMat.at<double>(0, 3));
 	printf("transformMat: %f, %f, %f, %f\n", transformMat.at<double>(1, 0), transformMat.at<double>(1, 1), transformMat.at<double>(1, 2), transformMat.at<double>(1, 3));
 	printf("transformMat: %f, %f, %f, %f\n", transformMat.at<double>(2, 0), transformMat.at<double>(2, 1), transformMat.at<double>(2, 2), transformMat.at<double>(2, 3));
 
-	//
-	//
-	//
-	// Why 240 and 320 below?
-	//
-	//
-	//
-	int z10 = 240 * 640 + 320;
-	cv::Mat tempp = cv::Mat(adjustCoords(320, 240, depthinMM[z10]));
-	//cv::convertPointsToHomogeneous(cv::Mat(adjustCoords(0, 0, 800)), tempp);
-	cv::Mat one = (cv::Mat_<double>(1, 1) << 1);
-	cv::Mat newvec = (cv::Mat_<double>(4, 1) << tempp.at<double>(0, 0), tempp.at<double>(1, 0), tempp.at<double>(2, 0), one.at<double>(0, 0));
-	cv::Mat output = transformMat*newvec;
-	printf("Output: %f,%f,%f\n", output.at<double>(0, 0), output.at<double>(1, 0), output.at<double>(2, 0));
-
-	cv::namedWindow("Fuck", cv::WINDOW_AUTOSIZE);
-	cv::imshow("Fuck", colour2);
-	cv::vector<int> test;
-	int maxIndex = 0;
-	int maxDepth = 0;
-	for (int i = 0; i < 640*480; i++) {
-		test.push_back(depthinMM[i]);
-		if (depthinMM[i] < 50000) {
-			if (depthinMM[i] > maxDepth) {
-				maxIndex = i;
-				maxDepth = depthinMM[i];
-			}
-		}
-	}
-	//printf("Depth: %d", test[corners[0].y*640 + corners[0].x]);
-	//printf("Depth: %d", test[corners[7].y*640 + corners[7].x]);
-	//printf("Depth: %d", test[corners[32].y*640 + corners[32].x]);
-	//printf("Depth: %d", test[corners[39].y*640 + corners[39].x]);
-	printf("Depth: %d", test[corners[0].y + corners[0].x*480]);
-	printf("Depth: %d", test[corners[7].y + corners[7].x*480]);
-	printf("Depth: %d", test[corners[32].y + corners[32].x*480]);
-	printf("Depth: %d", test[corners[39].y + corners[39].x*480]);
-	
-	
-	for (int i = 0; i < test.size(); i++) {
-		test[i] = (65535 - ((test[i]-800) * 65536 / maxDepth));
-	}
-	printf("Maxdepth: %d", maxDepth);
-	cv::Mat testMat = cv::Mat(test).reshape(0,480);
-
-	
-	cv::circle(testMat, corners[0], 10, cv::Scalar(0, 255, 0));
-	cv::circle(testMat, corners[7], 10, cv::Scalar(0, 255, 0));
-	cv::circle(testMat, corners[32], 10, cv::Scalar(0, 255, 0));
-	cv::circle(testMat, corners[39], 10, cv::Scalar(0, 255, 0));
-
-	cv::namedWindow("test2", cv::WINDOW_NORMAL);
-	cv::imshow("test2", testMat);
-
 	cv::waitKey(0);
-	/*/// Reduce noise with a kernel 3x3
-	cv::vector < cv::vector < cv::Point>> contours;
-	cv::vector <cv::Vec4i> hierarchy;
-	cv::imshow("Image",*kinect.m);
-	blur(*kinect.m, detected_edges, cv::Size(3, 3));
-
-	/// Canny detector
-	Canny(detected_edges, detected_edges, lowThreshold, lowThreshold*ratio, kernel_size);
-	cv::findContours(detected_edges, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
 	
-	
-	cv::resize(depth, depth, cv::Size(640, 480));
-	cv::Mat matrix = cv::Mat(2, 3, CV_32FC1);
-	matrix.at<float>(0, 0) = 0.98;
-	matrix.at<float>(0, 1) = 0;
-	matrix.at<float>(0, 2) = -13;
-	matrix.at<float>(1, 0) = 0;
-	matrix.at<float>(1, 1) = 1;
-	matrix.at<float>(1, 2) = 7;
-	cv::warpAffine(depth, depth, matrix,depth.size());
 
-	for (int i = 0; i < contours.size(); i++) {
-		cv::Scalar color = cv::Scalar(255, 0, 0);
-		cv::drawContours(depth, contours, i, color, 1, 8, cv::vector<cv::Vec4i>(), 0, cv::Point());
-	}
-
-	cv::namedWindow("depthoncolour", CV_WINDOW_NORMAL);
-	cv::imshow("depthoncolour", depth);
-*/
-
-
-
-	//cv::Mat img_object = cv::imread("samples/test/Test6.jpg", CV_LOAD_IMAGE_GRAYSCALE);
 	cv::Mat img_object;
 	cv::cvtColor(colour, img_object, CV_RGBA2GRAY);
-	//cv::Mat img_object = *kinect.m;
-	cv::Mat img_scene  = cv::imread("samples/test/Test3.jpg", CV_LOAD_IMAGE_GRAYSCALE);
 	src_gray = img_object.clone();
 	src_gray2 = img_object.clone();
-	if (!img_object.data || !img_scene.data)
+	if (!img_object.data)
 	{
-		std::cout << " --(!) Error reading images " << std::endl; return -2;
+		std::cout << " --(!) Error reading image " << std::endl; return -2;
 	}
 
-
-	//// The code below shows that for the Threshold to Zero method, a value of 142 leaves the cups with the largest pools of black
-	//// Can we use this information to help identify them?
 	cv::namedWindow(window_name2, CV_WINDOW_NORMAL);
 
 	/// Create Trackbar to choose type of Threshold
@@ -267,100 +181,20 @@ int main()
 
 	cv::waitKey(0);
 	
-	// The below transformation using canny tells us that an approx threshold of 50 gives us the cup outline
 	dst.create(img_object.size(), img_object.type());
 	cv::namedWindow(window_name, CV_WINDOW_NORMAL);
 	cv::createTrackbar("Min Threshold:", window_name, &lowThreshold, max_lowThreshold, CannyThreshold);
 	CannyThreshold(0, 0);
-	
-	// after canny threshold we can look at the array of cupEllipses
-	
-
 
 	cv::waitKey(0);
 	
 	
-	
-	int i = 1;
-	std::vector<cv::KeyPoint> keypoints_object, keypoints_scene;
-	std::vector<cv::DMatch> good_matches;
-	//threshold(img_scene, img_scene, threshold_value, max_BINARY_value, threshold_type);
-	//threshold(img_object, img_object, threshold_value, max_BINARY_value, threshold_type);
-	siftObjects(img_object, img_scene, &keypoints_object, &keypoints_scene, &good_matches);
 
-	std::string var = "medium";
-
-	std::vector<cv::Point2f> obj;
-	std::vector<cv::Point2f> scene;
-
-	
-	//for each image in collection
-	//while (i < 7) {
-	//	cv::Mat img_object = cv::imread("samples/train/"+var+"/"+std::to_string(i)+".jpg", CV_LOAD_IMAGE_GRAYSCALE);
-	//	//cv::namedWindow("bla", 1);
-	//	//cv::imshow("bla", img_object);
-	//	siftObjects(img_object, img_scene, &keypoints_object, &keypoints_scene, &good_matches);
-	//	
-	//	i++;
-	//}
-	
-	for (int i = 0; i < good_matches.size(); i++)
-	{
-		//-- Get the keypoints from the good matches
-		obj.push_back(keypoints_object[good_matches[i].queryIdx].pt);
-		scene.push_back(keypoints_scene[good_matches[i].trainIdx].pt);
-	}
-
-	//std::vector<std::vector<cv::DMatch>> groupedMatches;
-	//for (int i = 0; i < good_matches.size; i++) {
-	//	for (int j = 0; j < groupedMatches.size; j++) {
-	//		
-	//		cv::Point2f object = keypoints_object[good_matches[i].trainIdx].pt;
-	//		cv::Point2f scene = keypoints_scene[good_matches[i].queryIdx].pt;
-	//		double gradient = atan2(scene.y - object.y, scene.x - object.x);
-	//		if (gradient -)
-	//	}
-
-	//}
-
-	// drawing the results
-	cv::namedWindow("matches", 1);
-	cv::Mat img_matches;
-	cv::drawMatches(img_object, keypoints_object, img_scene, keypoints_scene, good_matches, img_matches);
-	imshow("matches", img_matches);
-
-	//cv::Mat H = cv::findHomography(obj, scene, CV_RANSAC);
-	
-	//-- Get the corners from the image_1 ( the object to be "detected" )
-	std::vector<cv::Point2f> obj_corners(4);
-	obj_corners[0] = cvPoint(0, 0); obj_corners[1] = cvPoint(img_object.cols, 0);
-	obj_corners[2] = cvPoint(img_object.cols, img_object.rows); obj_corners[3] = cvPoint(0, img_object.rows);
-	std::vector<cv::Point2f> scene_corners(4);
-
-	//cv::perspectiveTransform(obj_corners, scene_corners, H);
-
-	//-- Draw lines between the corners (the mapped object in the scene - image_2 )
-	//cv::line(img_matches, scene_corners[0] + cv::Point2f(img_object.cols, 0), scene_corners[1] + cv::Point2f(img_object.cols, 0), cv::Scalar(0, 255, 0), 4);
-	//cv::line(img_matches, scene_corners[1] + cv::Point2f(img_object.cols, 0), scene_corners[2] + cv::Point2f(img_object.cols, 0), cv::Scalar(0, 255, 0), 4);
-	//cv::line(img_matches, scene_corners[2] + cv::Point2f(img_object.cols, 0), scene_corners[3] + cv::Point2f(img_object.cols, 0), cv::Scalar(0, 255, 0), 4);
-	//cv::line(img_matches, scene_corners[3] + cv::Point2f(img_object.cols, 0), scene_corners[0] + cv::Point2f(img_object.cols, 0), cv::Scalar(0, 255, 0), 4);
-
-	//cv::line(img_scene, scene_corners[0], scene_corners[1], cv::Scalar(0, 255, 0), 4);
-	//cv::line(img_scene, scene_corners[1], scene_corners[2], cv::Scalar(0, 255, 0), 4);
-	//cv::line(img_scene, scene_corners[2], scene_corners[3], cv::Scalar(0, 255, 0), 4);
-	//cv::line(img_scene, scene_corners[3], scene_corners[0], cv::Scalar(0, 255, 0), 4);
-
-	// IF the elements of scene_corners make a rectangle
-	// Keep the drawn lines
-	// Otherwise scrap it for this image and keep iterating through the training images
-
-	//-- Show detected matches
-	//imshow("Good Matches & Object detection", img_matches);
-	imshow("Good Matches & Object detection", img_scene);
-
-	cvWaitKey(0);
-
-	// release handles we created
+	// Release handles we created
+	// Comment out Color and Uncomment depth if using depth frame first
+	// Then do the opposite in connectKinect
+	// IF running the above in a loop for subsequent images from the kinect feed
+	// make sure to only close the handles AFTER the stream is no longer used.
 	if (kinect.nextColorFrameEvent != INVALID_HANDLE_VALUE)
 	{
 		CloseHandle(kinect.nextColorFrameEvent);
@@ -370,7 +204,7 @@ int main()
 	//	CloseHandle(kinect.nextDepthFrameEvent);
 	//}
 
-	//shutdown kinect
+	// Shutdown kinect
 	kinect.sensor->NuiShutdown();
 	kinect.sensor->Release();
 
@@ -385,7 +219,6 @@ void Threshold_Demo(int, void*)
 	3: Threshold to Zero
 	4: Threshold to Zero Inverted
 	*/
-	//threshold_value = 142;
 	threshold(src_gray2, dst2, threshold_value, max_BINARY_value, threshold_type);
 
 	imshow(window_name2, dst2);
@@ -431,33 +264,6 @@ void CannyThreshold(int, void*)
 			continue;
 		}
 		cv::Scalar color = cv::Scalar(255,0,0);
-		//cv::drawContours(m3, contours, i, color, 1, 8, cv::vector<cv::Vec4i>(), 0, cv::Point());
-		cv::threshold(src_gray, dst2, 142, max_BINARY_value, 3);
-		float yCupSize;
-		std::string cupType;
-		yCupSize = 50;
-		/*if ((dst2.at<uchar>(minEllipse[i].center.y + 40, minEllipse[i].center.x) == 0) && (dst2.at<uchar>(minEllipse[i].center.y + 70, minEllipse[i].center.x) != 0)) {
-			//cupType. = 'small';
-			yCupSize = 50;
-		}
-		else if ((dst2.at<uchar>(minEllipse[i].center.y + 70, minEllipse[i].center.x) == 0) && (dst2.at<uchar>(minEllipse[i].center.y + 100, minEllipse[i].center.x) != 0)) {
-			//cupType = 'medium';
-			yCupSize = 80;
-		}
-		else {
-			//cupType = 'large';
-			yCupSize = 100;
-		}*/
-		/*if ((minEllipse[i].size.area() < (float)9000.0)&&(minEllipse[i].size.area() > (float)2000.0)&&
-			(minEllipse[i].size.width <50)&&(minEllipse[i].size.height <200)) {
-			cv::ellipse(m3, minEllipse[i], color, 2, 8);
-
-			/*if (dst2.at<uchar>(minEllipse[i].center.y + yCupSize, minEllipse[i].center.x) == 0) {
-				cv::rectangle(m3, cv::Point(minEllipse[i].center.x - yCupSize / 1.5, minEllipse[i].center.y),
-					cv::Point(minEllipse[i].center.x + yCupSize / 1.5, minEllipse[i].center.y + 1.4*yCupSize),
-					cv::Scalar(0, 255, 0));
-			}
-		}*/
 	}
 	std::vector<std::vector<int>> edges = getCupEdges();
 	for (int i = 0; i < edges.size(); i++) {
@@ -476,124 +282,9 @@ void CannyThreshold(int, void*)
 	imshow(window_name, dst);
 }
 
-
-// Apply Opencv's inbuilt surf function
-void siftObjects(cv::Mat img_object, cv::Mat img_scene, std::vector<cv::KeyPoint>* keypoints_object, std::vector<cv::KeyPoint>* keypoints_scene, std::vector<cv::DMatch>* good_matches)
-{
-	cv::SIFT sift = cv::SIFT(40,3,0.004,10.0,1.4);
-	sift.detect(img_object, *keypoints_object);
-	sift.detect(img_scene, *keypoints_scene);
-	//cv::FAST(img_object,*keypoints_object,5,true);
-	//cv::FAST(img_scene, *keypoints_scene, 5, true);
-
-	cv::Mat descriptors1, descriptors2;
-	sift.compute(img_object, *keypoints_object, descriptors1);
-	sift.compute(img_scene, *keypoints_scene, descriptors2);
-
-	//-- Step 3: Matching descriptor vectors using FLANN matcher
-	cv::FlannBasedMatcher matcher;
-	std::vector< cv::DMatch > matches;
-	matcher.match(descriptors1, descriptors2, matches);
-	
-	/*for (int i = 0; i < descriptors1.rows; i++)
-	{
-		good_matches->push_back(matches[i]);
-	}*/
-
-	double max_dist = 0; double min_dist = 100;
-
-	//-- Quick calculation of max and min distances between keypoints
-	for (int i = 0; i < descriptors1.rows; i++)
-	{
-		double dist = matches[i].distance;
-		if (dist < min_dist) min_dist = dist;
-		if (dist > max_dist) max_dist = dist;
-	}
-	for (int i = 0; i < descriptors1.rows; i++)
-	{
-		if (matches[i].distance < 3*min_dist)
-		{
-			good_matches->push_back(matches[i]);
-		}
-	}
-}
-
-
-
-
-// Apply Opencv's inbuilt surf function
-void surfObjects(cv::Mat img_object, cv::Mat img_scene, std::vector<cv::KeyPoint>* keypoints_object, std::vector<cv::KeyPoint>* keypoints_scene, std::vector<cv::DMatch>* good_matches)
-{
-	//-- Step 1: Detect the keypoints using SURF Detector
-	int minHessian = 600;
-
-	cv::SurfFeatureDetector detector(minHessian);
-
-	detector.detect(img_object, *keypoints_object);
-	detector.detect(img_scene, *keypoints_scene);
-
-	//-- Step 2: Calculate descriptors (feature vectors)
-	cv::SurfDescriptorExtractor extractor(minHessian, 4, 2, true, false);
-
-	cv::Mat descriptors_object, descriptors_scene;
-
-	extractor.compute(img_object, *keypoints_object, descriptors_object);
-	extractor.compute(img_scene, *keypoints_scene, descriptors_scene);
-
-	//-- Step 3: Matching descriptor vectors using FLANN matcher
-	cv::FlannBasedMatcher matcher;
-	std::vector< cv::DMatch > matches;
-	matcher.match(descriptors_object, descriptors_scene, matches);
-
-	double max_dist = 0; double min_dist = 100;
-
-	//-- Quick calculation of max and min distances between keypoints
-	for (int i = 0; i < descriptors_object.rows; i++)
-	{
-		double dist = matches[i].distance;
-		if (dist < min_dist) min_dist = dist;
-		if (dist > max_dist) max_dist = dist;
-	}
-
-	printf("-- Max dist : %f \n", max_dist);
-	printf("-- Min dist : %f \n", min_dist);
-
-	for (int i = 0; i < descriptors_object.rows; i++)
-	{
-		if (matches[i].distance <5* min_dist)
-		{
-			good_matches->push_back(matches[i]);
-		}
-	}
-}
-
 // get a CV_8UC4 (RGB) Matrix from Kinect RGB frame
 cv::Mat * GetColorImage(kinectClass *kinect, BYTE* bytes, int width, int height)
 {
-	//const BYTE* start = (const BYTE*)bytes;
-	//unsigned char* dest[COLOR_WIDTH*COLOR_HEIGHT*3];
-	//float* fdest = (float*)dest;
-	//long* depth2rgb = (long*)kinect->depthToRgbMap;
-	//for (int j = 0; j < height; ++j) {
-	//	for (int i = 0; i < width; ++i) {
-	//		// Determine color pixel for depth pixel i,j
-	//		long x = *depth2rgb++;
-	//		long y = *depth2rgb++;
-	//		// If out of bounds, then do not color this pixel
-	//		if (x < 0 || y < 0 || x > width || y > height) {
-	//			for (int n = 0; n < 3; ++n) *fdest++ = 0.f;
-	//		}
-	//		else {
-	//			// Determine rgb color for depth pixel (i,j) from color pixel (x,y)
-	//			const BYTE* color = start + (x + width*y) * 4;
-	//			for (int n = 0; n < 3; ++n) *fdest++ = color[2 - n] / 255.f;
-	//		}
-	//	}
-	//}
-
-
-
-	////
 	const unsigned int img_size = width*height*4;
 	cv::Mat * out = new cv::Mat(height, width, CV_8UC4);
 	memcpy(out->data, bytes, img_size);
@@ -604,47 +295,14 @@ cv::Mat * GetColorImage(kinectClass *kinect, BYTE* bytes, int width, int height)
 // get a CV_8U matrix from a Kinect depth frame 
 cv::Mat * GetDepthImage(kinectClass *kinect, BYTE* depthData, NUI_LOCKED_RECT* LockedRect, int width, int height)
 {
-	//INuiCoordinateMapper* coordMapper;
-	//kinect->sensor->NuiGetCoordinateMapper(&coordMapper);
-	//// map depthpixel to depth for all depthData
-	//NUI_DEPTH_IMAGE_PIXEL* depthPixelsNui = new NUI_DEPTH_IMAGE_PIXEL[(640*480)];
-	//int i = 0;
-	//while (i < (640*480)) {
-	//	depthPixelsNui[i].depth = NuiDepthPixelToDepth(depthData[i]);
-	//	depthPixelsNui[i].playerIndex = NuiDepthPixelToPlayerIndex(depthData[i]);
-	//	i++;
-	//}
-	//NUI_COLOR_IMAGE_POINT* mappedDepthLocations = new NUI_COLOR_IMAGE_POINT[640*480];
-	//coordMapper->MapDepthFrameToColorFrame(NUI_IMAGE_RESOLUTION_640x480,640*480,(NUI_DEPTH_IMAGE_PIXEL*)depthData,NUI_IMAGE_TYPE_COLOR, NUI_IMAGE_RESOLUTION_640x480,640*480, mappedDepthLocations);
-
-	//// now how to use NUI_COLOR_IMAGE_POINT *mappedDepthLocations
-	//
-
-
-
-
-	//printf("%d", mappedDepthLocations[320*240/2]);
-
-
-	//cv::Mat depthImage = cv::cvarrToMat(out, false);
-	//cv::namedWindow("depthtest", CV_WINDOW_AUTOSIZE);
-	//cv::imshow("depthtest", depthImage);
-	//cv::waitKey(0);
-	//return &depthImage;
-
+	
 	// We run the below to map the depth image to the color image
-
 	USHORT* data = (USHORT*)depthData;
 	IplImage* out = cvCreateImage(cvSize(640, 480), 8, 1);
 	int r = 480;
 	int c = 640;
 	long *colorCoords = new long[r*c * 2];
 
-	//for (int shift = 0; shift < r*c; shift++) {
-	//	USHORT data2 = data[shift] >> 3;
-	//	data[shift] = data2;
-	//}
-	// Store the index into the color array corresponding to this pixel
 	kinect->sensor->NuiImageGetColorPixelCoordinateFrameFromDepthPixelFrameAtResolution(
 		NUI_IMAGE_RESOLUTION_640x480,
 		NUI_IMAGE_RESOLUTION_640x480,
@@ -653,57 +311,15 @@ cv::Mat * GetDepthImage(kinectClass *kinect, BYTE* depthData, NUI_LOCKED_RECT* L
 		r*c*2,
 		colorCoords
 		);
-
-	///* The newest edition of looping through to properly utilise the above mapping*/
-	//IplImage* mappedData = cvCreateImage(cvSize(640, 480), 8, 1);
-
-	//// loop over each row and column of the color
-	//for (LONG y = 0; y < 480; ++y)
-	//{
-	//	LONG* pDest = (LONG*)mappedData + y*640;
-
-	//	for (LONG x = 0; x < 640; ++x)
-	//	{
-	//		int depthIndex = x + y * 640;
-
-	//		LONG colorInDepthX = colorCoords[depthIndex * 2];
-	//		LONG colorInDepthY = colorCoords[depthIndex * 2 + 1];
-
-	//		// make sure the depth pixel maps to valid point in color space
-	//		if (colorInDepthX >= 0 && colorInDepthX < 640 && colorInDepthY >= 0 && colorInDepthY < 480)
-	//		{
-	//			// calculate index into color array
-	//			LONG colorIndex = colorInDepthX + colorInDepthY * 640;
-
-	//			// set source for copy to the color pixel
-	//			LONG* pSrc = (LONG*)kinect->colourData + colorIndex;
-	//			*pDest = *pSrc;
-	//		}
-	//		else
-	//		{
-	//			*pDest = 0;
-	//		}
-
-	//		pDest++;
-	//	}
-	//}
-
-	// Then use mappedData as the depth
 	
-	/* END OF THE NEWER CODE */
-
-
-
-
-
 	depthinMM = new USHORT[LockedRect->size];
 	for (int i = 0; i < LockedRect->size; i += sizeof(USHORT)) {
 		unsigned char* pBuf = (unsigned char*)LockedRect->pBits + i;
 		unsigned short* pBufS = (unsigned short*)pBuf;
 		unsigned short depth = ((*pBufS &0xfff8)>> 3);
+		// The following function achieves the same result as the above & and shift
 		//unsigned short depth = NuiDepthPixelToDepth(*pBufS);
 		unsigned char intensity = depth > 0 ? 255 - (unsigned char)(256 * depth / 0x0fff) : 0;
-		//unsigned char intensity = depth == 0 || depth > 2047 ? 0 : 255 - (BYTE)(((float)depth / 2047.0f) * 255.0f);
 
 		long
 			x = colorCoords[i],
@@ -717,84 +333,11 @@ cv::Mat * GetDepthImage(kinectClass *kinect, BYTE* depthData, NUI_LOCKED_RECT* L
 
 	}
 
-	// Array for storing the aligned image
-	//cv::Mat alignedImage = cv::Mat::zeros(640, 480, CV_8U);
-	//cv::Mat* aligned = &alignedImage;
-	//cv::Mat* color = kinect->mcolor;
-	//int i = 0; //iterator for the mapped pixels array
-	//for (int y = 0; y < 480; y++) {
-	//	for (int x = 0; x < 640; x++) {
-	//	aligned[x + y * 640] = color[colorCoords[i] + colorCoords[i + 1] * 640];
-	//	i += 2;
-	//	}
-	//}
-
-	//cv::namedWindow("aligned", cv::WINDOW_NORMAL);
-	//cv::imshow("aligned", alignedImage);
-	// Then we can simply display Iout as a mat
-
 	
+	// Convert IplImage to cv::Mat
 	depthImage = cv::cvarrToMat(out, false);
-	//cv::Mat * depthImagePtr = &depthImage;
-	//printf("%d", out[640 * 480 / 2]);
-	//cv::namedWindow("colourDepth", cv::WINDOW_AUTOSIZE);
-	//cv::imshow("colourDepth", depthImage);
+	
 	return &depthImage;
-
-
-
-
-
-
-	//const USHORT* curr = (const USHORT*) depthData;
-	//unsigned char* dest[DEPTH_WIDTH*DEPTH_HEIGHT * 3];;
-	//float* fdest = (float*)dest;
-	//long* depth2rgb = (long*)kinect->depthToRgbMap;
-	//for (int j = 0; j < height; ++j) {
-	//	for (int i = 0; i < width; ++i) {
-	//		// Get depth of pixel in millimeters
-	//		USHORT depth = NuiDepthPixelToDepth(*curr);
-	//		// Store coordinates of the point corresponding to this pixel
-	//		Vector4 pos = NuiTransformDepthImageToSkeleton(i, j, *curr);
-	//		*fdest++ = pos.x / pos.w;
-	//		*fdest++ = pos.y / pos.w;
-	//		*fdest++ = pos.z / pos.w;
-	//		// Store the index into the color array corresponding to this pixel
-	//		NuiImageGetColorPixelCoordinatesFromDepthPixelAtResolution(
-	//			NUI_IMAGE_RESOLUTION_640x480, // color frame resolution
-	//			NUI_IMAGE_RESOLUTION_320x240, // depth frame resolution
-	//			NULL,                         // pan/zoom of color image (IGNORE THIS)
-	//			i, j, *curr,                  // Column, row, and depth in depth image
-	//			depth2rgb, depth2rgb + 1        // Output: column and row (x,y) in the color image
-	//			);
-	//		depth2rgb += 2;
-	//		*curr++;
-	//	}
-	//}
-
-	//const unsigned int img_size = width*height*3;
-	//cv::Mat* out = new cv::Mat(height, width, CV_8UC4);
-	//memcpy(out->data, dest, img_size);
-	//return out;
-	//cv::Mat * inter = new cv::Mat(height, width, CV_16U);
-	//cv::Mat * out = new cv::Mat(height, width, CV_8U);
-	////cv::Mat * out = new cv::Mat(height, width, CV_16U);
-	//std::vector<int> arr;
-	//
-	//// Copy image information into Mat
-
-	//for (UINT y = 0; y < height; ++y)
-	//{
-	//	// Get row pointer for depth Mat
-	//	USHORT* pDepthRow = inter->ptr<USHORT>(y);
-
-	//	for (UINT x = 0; x < width; ++x)
-	//	{
-	//		pDepthRow[x] = depthData[y * width + x];
-	//	}
-	//}
-	//inter->convertTo(*out, CV_8U, 255.0 / 65535);
-	//return inter;
 }
 
 // Connect to the kinect and open either the depth or color stream
@@ -1002,29 +545,7 @@ std::vector<std::vector<int>> getCupEdges() {
 		cupOutput.push_back(bottomOfCup);
 		output.push_back(cupOutput);
 	}
-	//for (int i = 0; i < output.size(); i++) {
-	//	cv::Rect r = cv::Rect(output[i][0], output[i][1], output[i][2] - output[i][0], output[i][3] - output[i][1]);
-	//	printf("Rect: %d,%d,%d,%d\n", r.x, r.y, r.width, r.height);
-	//	cv::vector<int> numInRec;
-	//	for (int j = 0; j < cupEllipses.size(); j++) {
-	//		if (r.contains(cupEllipses[j].center)) {
-	//			numInRec.push_back(j);
-	//		}
-	//		if (numInRec.size() == 2) {
-	//			if (numInRec[0] = i) {
-	//				output[i][3] = cupEllipses[numInRec[1]].boundingRect().y;// +cupEllipses[numInRec[1]].boundingRect().height;
-	//				output[numInRec[1]] = cv::vector<int>(4);
-	//			}
-	//			else {
-	//				output[i][3] = cupEllipses[numInRec[0]].boundingRect().y;// +cupEllipses[numInRec[0]].boundingRect().height;
-	//				output[numInRec[0]] = cv::vector<int>(4);
-	//			}
-	//			
-	//			
-	//		}
-	//	}
-	//}
-
+	
 	for (int i = 0; i < cupSizes.size(); i++) {
 		printf("Cupsize: %d \n", cupSizes[i]);
 	}
@@ -1033,11 +554,13 @@ std::vector<std::vector<int>> getCupEdges() {
 }
 
 cv::Point3d adjustCoords(int x, int y, int d) {
+	// The values of the camera calibration matrix found from calibration
 	double fx = 384.67525007;
 	double fy = 312.96378221;
 	double cx = 388.3476765;
 	double cy = 296.26745933;
 
+	// The adjustment without taking into account the distortion coefficients
 	double newx = (x - cx) * d / fx;
 	double newy = (y - cy) * d / fy;
 
@@ -1048,8 +571,7 @@ void detectChessboard(cv::Mat * input, cv::Mat * output) {
 	cv::Size patternsize(8, 5); //interior number of corners //source image
 	cv::vector<cv::Point2f> corners; //this will be filled by the detected corners
 
-	//CALIB_CB_FAST_CHECK saves a lot of time on images
-	//that do not contain any chessboard corners
+	// Find the corners
 	bool patternfound = findChessboardCorners(*input, patternsize, corners,
 		cv::CALIB_CB_ADAPTIVE_THRESH + cv::CALIB_CB_NORMALIZE_IMAGE
 		+ cv::CALIB_CB_FAST_CHECK);
@@ -1058,6 +580,7 @@ void detectChessboard(cv::Mat * input, cv::Mat * output) {
 		cornerSubPix(*input, corners, cv::Size(11, 11), cv::Size(-1, -1),
 		cv::TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 30, 0.1));
 
+	// Draw the corners
 	cv::drawChessboardCorners(checkerImage, patternsize, cv::Mat(corners), patternfound);
 }
 
@@ -1099,10 +622,6 @@ cv::Mat hornsAlgorithm(cv::vector<cv::Point3d> A, cv::vector<cv::Point3d> B) {
 		cv::Mat Mb = (cv::Mat_<double>(4, 4) << b1, -b2, -b3, -b4, b2, b1, -b4, b3, b3, b4, b1, -b2, b4, -b3, b2, b1);
 		cv::Mat Matr = Ma.t();
 		M = M + Matr*Mb;
-		//printf("M: %f, %f, %f, %f\n", M.at<double>(0, 0), M.at<double>(0, 1), M.at<double>(0, 2), M.at<double>(0, 3));
-		//printf("M: %f, %f, %f, %f\n", M.at<double>(1, 0), M.at<double>(1, 1), M.at<double>(1, 2), M.at<double>(1, 3));
-		//printf("M: %f, %f, %f, %f\n", M.at<double>(2, 0), M.at<double>(2, 1), M.at<double>(2, 2), M.at<double>(2, 3));
-		//printf("M: %f, %f, %f, %f\n", M.at<double>(3, 0), M.at<double>(3, 1), M.at<double>(3, 2), M.at<double>(3, 3));
 	}
 	cv::Mat eigenVals;
 	
@@ -1116,10 +635,6 @@ cv::Mat hornsAlgorithm(cv::vector<cv::Point3d> A, cv::vector<cv::Point3d> B) {
 	cv::Mat M1 = (cv::Mat_<double>(4, 4) << e1, -e2, -e3, -e4, e2, e1, e4, -e3, e3, -e4, e1, e2, e4, e3, -e2, e1);
 	cv::Mat M2 = (cv::Mat_<double>(4, 4) << e1, -e2, -e3, -e4, e2, e1, -e4, e3, e3, e4, e1, -e2, e4, -e3, e2, e1);
 	cv::Mat R = M1.t()*M2;
-	//printf("R: %f, %f, %f, %f\n", R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), R.at<double>(0, 3));
-	//printf("R: %f, %f, %f, %f\n", R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), R.at<double>(1, 3));
-	//printf("R: %f, %f, %f, %f\n", R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), R.at<double>(2, 3));
-	//printf("R: %f, %f, %f, %f\n", R.at<double>(3, 0), R.at<double>(3, 1), R.at<double>(3, 2), R.at<double>(3, 3));
 	cv::Mat R1 = R.colRange(1, 4).rowRange(1, 4).clone();
 
 	int s = 1;
@@ -1131,6 +646,11 @@ cv::Mat hornsAlgorithm(cv::vector<cv::Point3d> A, cv::vector<cv::Point3d> B) {
 	return result;
 }
 
+// The function to calibrate the kinect camera using a number of images with the checkerboard
+// in different postions (both rotated and translated different amounts)
+// >10 sample images is recommended
+// This function also writes the images from the kinect
+// so that calibration can occur while disconnected
 void calibrateCamera(kinectClass *kinect) {
 	int l = 0;
 	connectKinect(kinect, true);
@@ -1142,6 +662,8 @@ void calibrateCamera(kinectClass *kinect) {
 			checkerBoard.push_back(cv::Point2d(i * 26, j * 26));
 		}
 	}
+	// 14 sample images are used
+	// examples stored in images/calibration
 	while (l < 15) {
 		getKinectData(kinect, true);
 		std::ostringstream string;
@@ -1166,6 +688,8 @@ void calibrateCamera(kinectClass *kinect) {
 	printf("R: %f, %f, %f\n", cameraOutputMatrix.at<double>(2, 0), cameraOutputMatrix.at<double>(2, 1), cameraOutputMatrix.at<double>(2, 2));
 }
 
+// This function is similar to calibrateCamera() but instead reads in images
+// and does not imwrite() any
 void calibrateFromImages() {
 	int l = 0;
 	cv::vector<cv::vector<cv::Point2d>> vectorOfVectors;
