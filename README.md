@@ -1,5 +1,6 @@
 METR4202-Kinect
 ===============
+Jonathan Holland &amp; Alistair Roe
 
 METR4202 Project 2 - Image recognition with the Kinect RGBA &amp; Depth (IR) sensors of takeaway coffee cups and glasses.
 For the Full Specifications of The University of Queenslands METR4202 Advanced Robotics course project 2, please see projectSpec.pdf.
@@ -11,7 +12,7 @@ Steps to install/run the VS C++ Kinect sample in Windows
 - Install the Kinect for windows SDK 
 - Download and install OpenCV for Windows
   
-- Extract the coffeeNotSleep.zip file of the sample and then open Visual Studio to import this project template.
+- Extract the 4202p2.zip file of the sample and then open Visual Studio to import this project template.
 
 - add *OpenCVFolder\include* and *KinectSDKFolder\inc* to the C\C++->General->Additional Include Directies Tab under **Project Properties**
   
@@ -41,6 +42,6 @@ There are many alternatives to setting up Image Recognition with the Kinect. Som
 
 Note that while these libraries contain some functions to make everything easier, this sample is not tailored to either and you *may* lose some freedom of what you can achieve. This is mentioned with the knowledge that LibFreeNect's driver connection is incompatible with the Kinect for windows SDK and that LibFreeNect and OpenNI can't be used simultaneously.
 
-** This was made using Dillinger, a 100% Open Source Online Markdown Editor!**
+**This was made using Dillinger, a 100% Open Source Online Markdown Editor!**
 
 **Free Software, Hell Yeah!**
